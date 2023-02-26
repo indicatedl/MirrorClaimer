@@ -1,0 +1,5 @@
+eth_account==0.5.9
+loguru==0.6.0
+python-dotenv==1.0.0
+ua_generator==0.1.7
+web3==6.0.0b9
