@@ -49,7 +49,8 @@ def setup_session(proxy):
             'cache-control': 'no-cache',
             'content-type': 'application/json;charset=UTF-8',
             'origin': url,
-            'referer': f'{url}/',
+            'pragma': f'{url}/',
+            'referer': 'https://optimism.mirror.xyz/',
             'sec-ch-ua': f'"{ua.ch.brands[2:]}',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': f'"{ua.platform.title()}"',
@@ -501,7 +502,7 @@ def main(wallet, email, proxy, i):
         if not mint_payload:
             with open(CLAIMED_FILE, 'a') as file:
                 pass
-                file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}')
+                file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}\n')
             return
         tx_hash, status = mint_nft(address, private_key, mint_payload, signature, i)
 
@@ -522,7 +523,7 @@ def main(wallet, email, proxy, i):
         logger.success(f"{i}) MINT SUCCESS!!!!!!!: (tx hash: {tx_hash})")
         with open(CLAIMED_FILE, 'a') as file:
             pass
-            file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}')
+            file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}\n')
     else:
         logger.error(f"{i}) MINT ERROR: (tx hash: {tx_hash})")
 
