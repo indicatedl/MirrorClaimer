@@ -151,8 +151,7 @@ def get_info_about_email_confirm(session, address, email, i):
                 return True
             else:
                 logger.info(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
-                sleep(5)
-                continue        
+                sleep(5)     
         except Exception as error:
             logger.error(f"{i}) Unexcepted error get_info_about_email_confirm request: {error}")
             sleep(5)
@@ -193,7 +192,6 @@ def link_email(session, address, private_key, email, i):
             else:
                 logger.error(f"{i}) Error link_email request_1: clear respose {resp.text}")
                 sleep(5)
-                continue
         except Exception as error:
             logger.error(f"{i}) Unexcepted error link_email request_1: {error}")
             sleep(5)
@@ -232,7 +230,6 @@ def link_email(session, address, private_key, email, i):
                 break
             else:
                 logger.info(f"{i}) Error link email: {resp.text}")
-                continue
         except Exception as error:
             logger.error(f"{i}) Unexcepted error link_email request_2: {error}")
             sleep(5)
@@ -266,7 +263,6 @@ def link_email(session, address, private_key, email, i):
             else:
                 logger.error(f"{i}) Error link_email: {resp.status_code, resp.text}")
                 sleep(5)
-                continue
         except Exception as error:
             logger.error(f"{i}) Unexcepted error link_email request_3: {error}")
             sleep(5)
@@ -373,21 +369,21 @@ def get_mint_nft_payload(session, address, i):
             else:
                 logger.error(f"{i}) Error get_mint_nft_payload request: {resp.text}")
                 sleep(5)
-                continue
         except Exception as error:
             logger.error(f"{i}) Unexcepted error get_mint_nft_payload request: {error}")
             sleep(5)
 
 
-def mint_free_nft(address, private_key, mint_payload, signature, i):
+def mint_nft(address, private_key, mint_payload, signature, i):
     try:
-        contract = web3.eth.contract(address=web3.to_checksum_address(NFT_CONTRACT_ADDRESS), abi=FREE_NFT_ABI)
+        contract = web3.eth.contract(address=web3.to_checksum_address(NFT_CONTRACT_ADDRESS), abi=NFT_ABI)
         transaction = contract.functions.mintWithSignature(mint_payload, signature).build_transaction({
                 'nonce': int(web3.eth.get_transaction_count(address)),
                 'gasPrice': int(web3.eth.gas_price * 1.1),
                 'chainId': CHAIN_ID,
                 'from': address,
                 'gas': 180000,
+                'value': int(VALUE * 10**18),
         })
         #transaction['gas'] = int(web3.eth.estimate_gas(transaction) * 1.1)
         signed_txn = web3.eth.account.sign_transaction(transaction, private_key)
@@ -439,7 +435,6 @@ def get_mint_first_entry_payload(session, address, i):
             else:
                 logger.error(f"{i}) Error get_mint_first_entry_payload request: {resp.text}")
                 sleep(5)
-                continue
         except Exception as error:
             logger.error(f"{i}) Unexcepted error get_mint_first_entry_payload request: {error}")
             sleep(5)
@@ -501,14 +496,14 @@ def main(wallet, email, proxy, i):
         subscribe(session, address, private_key, i)
 
 
-    if MINT_TYPE == 'FREE_NFT':
+    if MINT_TYPE == 'NFT':
         mint_payload, signature = get_mint_nft_payload(session, address, i)
         if not mint_payload:
             with open(CLAIMED_FILE, 'a') as file:
                 pass
                 file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}')
             return
-        tx_hash, status = mint_free_nft(address, private_key, mint_payload, signature, i)
+        tx_hash, status = mint_nft(address, private_key, mint_payload, signature, i)
 
     elif MINT_TYPE == 'ENTRY':
         if FIRST_ENTRY_STATUS == 'True':
@@ -536,8 +531,8 @@ if (__name__ == '__main__'):
     web3 = Web3(Web3.HTTPProvider(WEB3_PROVIDER))
     url, digest = split_url(URL_LINK)
 
-    with open('jsons/FREE_NFT_ABI.json', 'r') as file:
-        FREE_NFT_ABI = json.load(file)
+    with open('jsons/NFT_ABI.json', 'r') as file:
+        NFT_ABI = json.load(file)
     with open('jsons/FIRST_ENTRY_ABI.json', 'r') as file:
         FIRST_ENTRY_ABI = json.load(file)
     with open('jsons/ENTRY_ABI.json', 'r') as file:
