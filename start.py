@@ -171,6 +171,13 @@ def link_email(session, address, private_key, email, i):
 
     while True:
         try:
+            mail_numbers_before = email_imap.get_number_of_mails()
+            break
+        except:
+            pass
+        
+    while True:
+        try:
             data = {
                 "operationName": "SubscriptionSigningMessage",
                 "variables": {
@@ -197,14 +204,8 @@ def link_email(session, address, private_key, email, i):
             sleep(5)
 
     signature = web3.eth.account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
-
-    while True:
-        try:
-            mail_numbers_before = email_imap.get_number_of_mails()
-            break
-        except:
-            pass
-
+    sleep(1)
+    
     while True:
         try:
             data = {
