@@ -553,8 +553,8 @@ if (__name__ == '__main__'):
 
     emails = [x for x in all_emails if (x not in registered_mails)]
     wallets = [x for x in all_wallets if (x not in registered_wallets)]
-    while len(proxies) < len(wallets):
-        proxies.append(*proxies)
+    while len(proxies) <= len(wallets):
+        proxies.extend(proxies)
 
     project_address = web3.to_checksum_address(get_project_address(proxies[0]))
 
