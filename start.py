@@ -50,7 +50,7 @@ def setup_session(proxy):
             'content-type': 'application/json;charset=UTF-8',
             'origin': url,
             'referer': f'{url}/',
-            'sec-ch-ua': f'"{ua.ch.brands[2:]}',
+            'sec-ch-ua': f'"{ua.ch.brands[2:]}"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': f'"{ua.platform.title()}"',
             'sec-fetch-dest': 'empty',
