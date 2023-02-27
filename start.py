@@ -49,7 +49,7 @@ def setup_session(proxy):
             'cache-control': 'no-cache',
             'content-type': 'application/json;charset=UTF-8',
             'origin': url,
-            'referer': f'{url}/,
+            'referer': f'{url}/',
             'sec-ch-ua': f'"{ua.ch.brands[2:]}',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': f'"{ua.platform.title()}"',
