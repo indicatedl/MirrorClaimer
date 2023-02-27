@@ -558,7 +558,7 @@ if (__name__ == '__main__'):
 
     project_address = web3.to_checksum_address(get_project_address(proxies[0]))
 
-    with concurrent.futures.ThreadPoolExecutor(5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(THREADS) as executor:
         futures = []
         for i, wallet, email, proxy in zip(range(1, len(wallets)+1), wallets, emails, proxies):
             futures.append(
