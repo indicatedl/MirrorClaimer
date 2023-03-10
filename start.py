@@ -342,10 +342,11 @@ def get_mint_nft_payload(session, address, i):
                 logger.error(f"{i}) Error get_mint_nft_payloadd request: {resp.status_code, resp.text}")
                 sleep(5)
             if resp.json()['data']['subscriberEditionSignature']['result'] == 'Success':
-                str_data = signature = resp.json()['data']['subscriberEditionSignature']['signedPayload']
+                str_data = resp.json()['data']['subscriberEditionSignature']['signedPayload']
                 new_data = json.loads(str_data)
                 signature = new_data['signature']
                 uid = new_data['payload']['uid']
+                tvalue = float(new_data['payload']['price'])
                 hex_value = new_data['payload']['mintEndTime']['hex']
                 logger.success(f"{i}) Mint payload received!")
                 mint_payload = (
@@ -356,7 +357,7 @@ def get_mint_nft_payload(session, address, i):
                         0,
                         '',
                         1,
-                        0,
+                        int(tvalue*10**18),
                         '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
                         0,
                         int(hex_value, 16),
