@@ -2,6 +2,10 @@ import imaplib
 import email
 import quopri
 import base64
+from time import time
+
+class TimeoutError(Exception):
+    pass
 
 class emailImap:
     def __init__(self, address, password, server, folder):
@@ -41,10 +45,12 @@ class emailImap:
         imap.logout()
         return mail_text
 
-    def get_new_mail(self, mail_num_before):
+    def get_new_mail(self, mail_num_before, starttime):
         while True:
             mail_num = self.get_number_of_mails()
             if (mail_num != mail_num_before):
                 break
+            if time() - starttime > 100:
+                raise TimeoutError
         mail_text = self.get_mail_by_id(str(mail_num))
         return mail_text
