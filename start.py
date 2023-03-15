@@ -12,10 +12,13 @@ from eth_account.messages import encode_defunct
 from dotenv import dotenv_values
 
 from modules.emailimap import emailImap
+from modules.emailimap import TimeoutError
 
 # FILE SETTINGS
 file_wallets = 'files/wallets.txt'
 file_proxies = 'files/proxies.txt'
+file_registered = 'files/registered.txt'
+file_dismissed_emails = 'files/dismissed_emails.txt'
 file_mails = 'files/mails.txt'
 file_log = 'logs/log.log'
 
@@ -124,36 +127,38 @@ def get_info_about_subscription(session, address, i):
             sleep(5)
 
 
-def get_info_about_email_confirm(session, address, email, i):
-    while True:
-        try:
-            data = {
-                "operationName": "SubscriptionEmail",
-                "variables": {
-                "walletAddress": address
-                },
-                "query": "query SubscriptionEmail($walletAddress: String!) {\n  subscriptionEmail(walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
-            }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
-            if resp.status_code != 200:
-                logger.error(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
-                sleep(5)
-                continue
-            if resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_NOT_SUBMITTED':
-                logger.info(f"{i}) Email not linked. Trying to link... ")
-                return False
-            elif resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_NOT_VERIFIED':
-                logger.info(f"{i}) Email not verified. Trying to verify... ")
-                return False
-            elif resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_VERIFIED':
-                logger.info(f"{i}) Email already linked")
-                return True
-            else:
-                logger.info(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
-                sleep(5)     
-        except Exception as error:
-            logger.error(f"{i}) Unexcepted error get_info_about_email_confirm request: {error}")
-            sleep(5)
+def get_info_about_email_confirm(session, address, private_key, i):
+    try:
+        data = {
+            "operationName": "SubscriptionEmail",
+            "variables": {
+            "walletAddress": address
+            },
+            "query": "query SubscriptionEmail($walletAddress: String!) {\n  subscriptionEmail(walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
+            return
+        if resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_NOT_SUBMITTED':
+            logger.info(f"{i}) Email not linked")
+            return 'NOT_SUBMITTED'
+        elif resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_NOT_VERIFIED':
+            logger.info(f"{i}) Email not verified")
+            return 'NOT_VERIFIED'
+        elif resp.json()['data']['subscriptionEmail']['verificationStatus'] == 'EMAIL_VERIFIED':
+            logger.info(f"{i}) Email already verified")
+            rmail = resp.json()['data']['subscriptionEmail']['maskedEmail']
+            if address not in registered_wallets:
+                with open(file_registered, 'a') as file:
+                    file.write(f"{address}:{private_key}:{rmail}:{None}\n")
+            return 'VERIFIED'
+        else:
+            logger.info(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
+            return    
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error get_info_about_email_confirm request: {error}")
+        return
 
 
 def get_code(mail):
@@ -165,107 +170,173 @@ def get_code(mail):
     return(code)
 
 
-def link_email(session, address, private_key, email, i):
+def unlink_email(session, address, private_key, i):
+    try:
+        data = {
+            "operationName": "SubscriptionSigningMessage",
+            "variables": {
+                "projectAddress": address,
+                "walletAddress": address,
+                "type": "UNLINK_EMAIL"
+            },
+            "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error unlink_email request_1: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['subscriptionSigningMessage']:
+            message = resp.json()['data']['subscriptionSigningMessage']
+        else:
+            logger.error(f"{i}) Error unlink_email request_1: clear respose {resp.text}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error unlink_email request_1: {error}")
+        return False
+
+    signature = web3.eth.account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
+    sleep(1)
+
+    try:
+        data = {
+            "operationName": "UnlinkEmail",
+            "variables": {
+                "signature": signature,
+                "signedMessage": message,
+                "walletAddress": address
+            },
+            "query": "mutation UnlinkEmail($walletAddress: String!, $signedMessage: String!, $signature: String!) {\n  unlinkEmail(\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error unlink_email request_2: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['unlinkEmail']['verificationStatus'] and resp.json()['data']['unlinkEmail']['verificationStatus'] == 'EMAIL_NOT_SUBMITTED':
+            logger.info(f"{i}) Old email unlinked")
+            return True
+        else:
+            logger.info(f"{i}) Error unlink_email: {resp.text}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error unlink_email request_2: {error}")
+        return False
+
+
+def link_email(session, address, private_key, i):
+    email = available_emails.pop()
     email_imap = emailImap(email[0], email[1], IMAP_SERVER, IMAP_FOLDER)
 
     while True:
         try:
             mail_numbers_before = email_imap.get_number_of_mails()
             break
-        except:
-            pass
+        except Exception:
+            sleep(1)
         
-    while True:
-        try:
-            data = {
-                "operationName": "SubscriptionSigningMessage",
-                "variables": {
-                    "email": email[0],
-                    "projectAddress": address,
-                    "walletAddress": address,
-                    "type": "LINK_EMAIL"
-                },
-                "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
-            }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
-            if resp.status_code != 200:
-                logger.error(f"{i}) Error link_email request_1: {resp.status_code, resp.text}")
-                sleep(5)
-                continue
-            if resp.json()['data']['subscriptionSigningMessage']:
-                message = resp.json()['data']['subscriptionSigningMessage']
-                break
-            else:
-                logger.error(f"{i}) Error link_email request_1: clear respose {resp.text}")
-                sleep(5)
-        except Exception as error:
-            logger.error(f"{i}) Unexcepted error link_email request_1: {error}")
-            sleep(5)
+    try:
+        data = {
+            "operationName": "SubscriptionSigningMessage",
+            "variables": {
+                "email": email[0],
+                "projectAddress": address,
+                "walletAddress": address,
+                "type": "LINK_EMAIL"
+            },
+            "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error link_email request_1: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['subscriptionSigningMessage']:
+            message = resp.json()['data']['subscriptionSigningMessage']
+        else:
+            logger.error(f"{i}) Error link_email request_1: clear respose {resp.text}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error link_email request_1: {error}")
+        return False
 
     signature = web3.eth.account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
     sleep(1)
     
-    while True:
-        try:
-            data = {
-                "operationName": "LinkEmail",
-                "variables": {
-                    "email": email[0],
-                    "signature": signature,
-                    "signedMessage": message,
-                    "walletAddress": address
-                },
-                "query": "mutation LinkEmail($email: String!, $walletAddress: String!, $signedMessage: String!, $signature: String!, $walletlessSubscriptionToken: String) {\n  linkEmail(\n    email: $email\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n    walletlessSubscriptionToken: $walletlessSubscriptionToken\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
-            }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
-            if resp.status_code != 200:
-                logger.error(f"{i}) Error link_email request_2: {resp.status_code, resp.text}")
-                sleep(5)
-                continue
-            if resp.json()['data']['linkEmail']['verificationStatus'] and resp.json()['data']['linkEmail']['verificationStatus'] == 'EMAIL_VERIFIED':
-                logger.info(f"{i}) Email already linked")
-                return
-            elif resp.json()['data']['linkEmail']['verificationStatus'] and resp.json()['data']['linkEmail']['verificationStatus'] == 'EMAIL_NOT_VERIFIED':
-                logger.info(f"{i}) Trying to verify email...")
-                break
-            else:
-                logger.info(f"{i}) Error link email: {resp.text}")
-        except Exception as error:
-            logger.error(f"{i}) Unexcepted error link_email request_2: {error}")
-            sleep(5)
+    try:
+        data = {
+            "operationName": "LinkEmail",
+            "variables": {
+                "email": email[0],
+                "signature": signature,
+                "signedMessage": message,
+                "walletAddress": address
+            },
+            "query": "mutation LinkEmail($email: String!, $walletAddress: String!, $signedMessage: String!, $signature: String!, $walletlessSubscriptionToken: String) {\n  linkEmail(\n    email: $email\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n    walletlessSubscriptionToken: $walletlessSubscriptionToken\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error link_email request_2: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['linkEmail']['verificationStatus'] and resp.json()['data']['linkEmail']['verificationStatus'] == 'EMAIL_VERIFIED':
+            logger.info(f"{i}) Email already linked")
+            return True
+        elif resp.json()['data']['linkEmail']['verificationStatus'] and resp.json()['data']['linkEmail']['verificationStatus'] == 'EMAIL_NOT_VERIFIED':
+            logger.info(f"{i}) Trying to verify email {email[0]}...")
+        else:
+            logger.info(f"{i}) Error link email: {resp.text}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error link_email request_2: {error}")
+        return False
 
+    stime = time()
     while True:
         try:
-            token = get_code(email_imap.get_new_mail(mail_numbers_before))
-            logger.info(f"{i}) Get token: {token}")
+            token = get_code(email_imap.get_new_mail(mail_numbers_before, stime))
+            logger.info(f"{i}) Email verification token received")
             break
+        except TimeoutError:
+            logger.error(f"{i}) Timeout 100s error 'get email'")
+            with open(file_dismissed_emails) as file:
+                file.write(f'{email}\n')
+            return False
         except Exception as error:
             sleep(1)
 
-    while True:
-        try:
-            data = {
-                "operationName": "VerifyEmailToken",
-                "variables": {
-                    "token": token,
-                    "walletAddress": address
-                },
-                "query": "mutation VerifyEmailToken($token: String!, $walletAddress: String!) {\n  verifyEmailToken(token: $token, walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
-            }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
-            if resp.status_code != 200:
-                logger.error(f"{i}) Error link_email request_3: {resp.status_code, resp.text}")
-                sleep(5)
-                continue
-            if resp.json()['data']['verifyEmailToken']['verificationStatus'] and resp.json()['data']['verifyEmailToken']['verificationStatus'] == 'EMAIL_VERIFIED':
-                logger.success(f"{i}) Successfully linked email")
-                return True
+    try:
+        data = {
+            "operationName": "VerifyEmailToken",
+            "variables": {
+                "token": token,
+                "walletAddress": address
+            },
+            "query": "mutation VerifyEmailToken($token: String!, $walletAddress: String!) {\n  verifyEmailToken(token: $token, walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
+        }
+        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error link_email request_3: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['verifyEmailToken']['verificationStatus'] and resp.json()['data']['verifyEmailToken']['verificationStatus'] == 'EMAIL_VERIFIED':
+            logger.success(f"{i}) Successfully linked email")
+            txt = f'{address}:{private_key}:{email[0]}:{email[1]}'
+            if address in registered_wallets:
+                with open(file_registered, 'r') as file:
+                    fdata = [row.strip() for row in file]
+                old = f"{fdata[registered_wallets.index(address)].split(':')[2]}:{fdata[registered_wallets.index(address)].split(':')[3]}"
+                fdata[registered_wallets.index(address)] = txt
+                with open(file_registered, 'w') as file:
+                    for line in fdata:
+                        file.write(f"{line}\n")
+                with open(file_dismissed_emails, 'a') as file:
+                    file.write(f"{old}\n")
             else:
-                logger.error(f"{i}) Error link_email: {resp.status_code, resp.text}")
-                sleep(5)
-        except Exception as error:
-            logger.error(f"{i}) Unexcepted error link_email request_3: {error}")
-            sleep(5)
+                with open (file_registered, 'a') as file:
+                    file.write(f"{txt}\n")
+            return True
+        else:
+            logger.error(f"{i}) Error link_email: {resp.json()['data']['verifyEmailToken']['verificationStatus']}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error link_email request_3: {error}")
+        return False
 
 
 def subscribe(session, address, private_key, i):
@@ -394,7 +465,7 @@ def mint_nft(address, private_key, mint_payload, signature, i):
         status = True if data['status'] == 1 else False
         return (tx_hash.hex(), status)
     except Exception as error:
-        logger.error(f"{i}) Unexcepted mint_free_nft error: {error}")
+        logger.error(f"{i}) Unexcepted mint_nft error: {error}")
 
 
 def get_mint_first_entry_payload(session, address, i):
@@ -484,48 +555,57 @@ def mint_entry(address, private_key, i):
         logger.error(f"{i}) Unexcepted mint_entry error: {error}")
 
 
-def main(wallet, email, proxy, i):
-    address = web3.to_checksum_address(wallet[0])
-    private_key = wallet[1]
-    session = setup_session(proxy)
+def main(wallet, i):
+    try:
+        address = web3.to_checksum_address(wallet[0])
+        private_key = wallet[1]
+        proxy = proxies.pop()
+        session = setup_session(proxy)
 
-    logger.info(f'{i}) Account work: {address}')
+        logger.info(f'{i}) Account work: {address}  (proxy: {proxy.split("@")[1]})')
 
-    if not get_info_about_email_confirm(session, address, email[0], i):
-        link_email(session, address, private_key, email, i)
-    if not get_info_about_subscription(session, address, i):
-        subscribe(session, address, private_key, i)
+        status = get_info_about_email_confirm(session, address, private_key, i)  
+        if status == 'NOT_SUBMITTED':
+            if not link_email(session, address, private_key, i):
+                return
+        elif status == 'NOT_VERIFIED':
+            if not unlink_email(session, address, private_key, i):
+                return         
+            if not link_email(session, address, private_key, i):
+                return
+        if not get_info_about_subscription(session, address, i):
+            subscribe(session, address, private_key, i)
 
+        if MINT_TYPE == 'NFT':
+            mint_payload, signature = get_mint_nft_payload(session, address, i)
+            if not mint_payload:
+                with open(CLAIMED_FILE, 'a') as file:
+                    file.write(f'{address}:{private_key}:{NFT_CONTRACT_ADDRESS}\n')
+                return
+            tx_hash, status = mint_nft(address, private_key, mint_payload, signature, i)
 
-    if MINT_TYPE == 'NFT':
-        mint_payload, signature = get_mint_nft_payload(session, address, i)
-        if not mint_payload:
-            with open(CLAIMED_FILE, 'a') as file:
-                pass
-                file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}\n')
-            return
-        tx_hash, status = mint_nft(address, private_key, mint_payload, signature, i)
-
-    elif MINT_TYPE == 'ENTRY':
-        if FIRST_ENTRY_STATUS == 'True':
-            mint_payload = get_mint_first_entry_payload(session, address, i)
-            tx_hash, status = mint_fisrt_entry(address, private_key, mint_payload, i)
-        elif FIRST_ENTRY_STATUS == 'False':
-            tx_hash, status = mint_entry(address, private_key, i)   
+        elif MINT_TYPE == 'ENTRY':
+            if FIRST_ENTRY_STATUS == 'True':
+                mint_payload = get_mint_first_entry_payload(session, address, i)
+                tx_hash, status = mint_fisrt_entry(address, private_key, mint_payload, i)
+            elif FIRST_ENTRY_STATUS == 'False':
+                tx_hash, status = mint_entry(address, private_key, i)   
+            else:
+                logger.error(f"{i}) INVALID FIRST_ENTRY_STATUS")
+                exit()
         else:
-            logger.error(f"{i}) INVALID FIRST_ENTRY_STATUS")
+            logger.error(f"{i}) INVALID MINT TYPE")
             exit()
-    else:
-        logger.error(f"{i}) INVALID MINT TYPE")
-        exit()
 
-    if status:
-        logger.success(f"{i}) MINT SUCCESS!!!!!!!: (tx hash: {tx_hash})")
-        with open(CLAIMED_FILE, 'a') as file:
-            pass
-            file.write(f'{address}:{private_key}:{email[0]}:{email[1]}:{NFT_CONTRACT_ADDRESS}\n')
-    else:
-        logger.error(f"{i}) MINT ERROR: (tx hash: {tx_hash})")
+        if status:
+            logger.success(f"{i}) MINT SUCCESS!!!!!!!: (tx hash: {tx_hash})")
+            with open(CLAIMED_FILE, 'a') as file:
+                file.write(f'{address}:{private_key}:{NFT_CONTRACT_ADDRESS}\n')
+        else:
+            logger.error(f"{i}) MINT ERROR: (tx hash: {tx_hash})")
+    except Exception as error:
+        logger.error(f"{i}) Main error: {error}")
+        return
 
 
 if (__name__ == '__main__'):
@@ -538,22 +618,32 @@ if (__name__ == '__main__'):
         FIRST_ENTRY_ABI = json.load(file)
     with open('jsons/ENTRY_ABI.json', 'r') as file:
         ENTRY_ABI = json.load(file)
-    with open(file_wallets, 'r') as file:
-        all_wallets = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file]
-    with open(file_proxies, 'r') as file:
-        proxies = [row.strip() for row in file]
-    with open(file_mails, 'r') as file:
-        all_emails = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file]
+
     if not os.path.isfile(CLAIMED_FILE):
         open(CLAIMED_FILE, 'w').close()
+    if not os.path.isfile(file_registered):
+        open(file_registered, 'w').close()
+    if not os.path.isfile(file_dismissed_emails):
+        open(file_dismissed_emails, 'w').close()
 
+    with open(file_wallets, 'r') as file:
+        all_wallets = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file]
+    with open(file_mails, 'r') as file:
+        all_emails = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file]
+    with open(file_proxies, 'r') as file:
+        proxies = [row.strip() for row in file]
+    with open(file_registered, 'r') as file:
+        registered_wallets = [row.strip().split(':')[0] for row in file]
+    with open(file_registered, 'r') as file:
+        registered_emails = [[row.strip().split(':')[2],row.strip().split(':')[3]] for row in file]
+    with open(file_dismissed_emails, 'r') as file:
+        dismissed_emails = [row.strip().split(':') for row in file]
     with open(CLAIMED_FILE, 'r') as file:
-        registered_wallets = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file] 
-    with open(CLAIMED_FILE, 'r') as file:
-        registered_mails = [[row.strip().split(':')[2],row.strip().split(':')[3]] for row in file]
+        claimed_wallets = [[row.strip().split(':')[0],row.strip().split(':')[1]] for row in file] 
 
-    emails = [x for x in all_emails if (x not in registered_mails)]
-    wallets = [x for x in all_wallets if (x not in registered_wallets)]
+    available_emails = [x for x in all_emails if x not in registered_emails and x not in dismissed_emails]
+    available_emails.reverse()
+    wallets = [x for x in all_wallets if x not in claimed_wallets]
     while len(proxies) <= len(wallets):
         proxies.extend(proxies)
 
@@ -561,9 +651,9 @@ if (__name__ == '__main__'):
 
     with concurrent.futures.ThreadPoolExecutor(THREADS) as executor:
         futures = []
-        for i, wallet, email, proxy in zip(range(1, len(wallets)+1), wallets, emails, proxies):
+        for i, wallet in enumerate(wallets):
             futures.append(
                 executor.submit(
-                    main, wallet, email, proxy, i
+                    main, wallet, i
                 )
             )
