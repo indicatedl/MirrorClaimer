@@ -1,9 +1,14 @@
 import requests
 import json
 import os
+import secrets
+import base64
 import concurrent.futures
 from time import time, sleep
 from sys import stderr, exit
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.backends import default_backend
+from datetime import datetime
 
 import ua_generator
 from web3 import Web3
@@ -70,10 +75,7 @@ def setup_session(proxy):
 def split_url(url_link):
     url_parts = url_link.split("/")
     url = 'https://'+url_parts[2]
-    if len(url_parts) > 4:
-        digest = url_parts[4]
-    else:
-        digest = url_parts[3]
+    digest = url_parts[4] if len(url_parts) > 4 else url_parts[3]
     return url, digest
 
 
@@ -88,7 +90,7 @@ def get_project_address(proxy):
                 },
                 "query": "query WritingNFT($digest: String!) {\n  entry(digest: $digest) {\n    _id\n    digest\n    arweaveTransactionRequest {\n      transactionId\n      __typename\n    }\n    writingNFT {\n      ...writingNFTDetails\n      media {\n        ...mediaAsset\n        __typename\n      }\n      network {\n        ...networkDetails\n        __typename\n      }\n      intents {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      purchases {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n\nfragment writingNFTDetails on WritingNFTType {\n  _id\n  contractURI\n  contentURI\n  deploymentSignature\n  deploymentSignatureType\n  description\n  digest\n  fee\n  fundingRecipient\n  imageURI\n  canMint\n  media {\n    id\n    cid\n    __typename\n  }\n  nonce\n  optimisticNumSold\n  owner\n  price\n  proxyAddress\n  publisher {\n    project {\n      ...writingNFTProjectDetails\n      __typename\n    }\n    __typename\n  }\n  quantity\n  renderer\n  signature\n  symbol\n  timestamp\n  title\n  version\n  __typename\n}\n\nfragment writingNFTProjectDetails on ProjectType {\n  _id\n  address\n  avatarURL\n  displayName\n  domain\n  ens\n  __typename\n}\n\nfragment mediaAsset on MediaAssetType {\n  id\n  cid\n  mimetype\n  sizes {\n    ...mediaAssetSizes\n    __typename\n  }\n  url\n  __typename\n}\n\nfragment mediaAssetSizes on MediaAssetSizesType {\n  og {\n    ...mediaAssetSize\n    __typename\n  }\n  lg {\n    ...mediaAssetSize\n    __typename\n  }\n  md {\n    ...mediaAssetSize\n    __typename\n  }\n  sm {\n    ...mediaAssetSize\n    __typename\n  }\n  __typename\n}\n\nfragment mediaAssetSize on MediaAssetSizeType {\n  src\n  height\n  width\n  __typename\n}\n\nfragment networkDetails on NetworkType {\n  _id\n  chainId\n  name\n  explorerURL\n  currency {\n    _id\n    name\n    symbol\n    decimals\n    __typename\n  }\n  __typename\n}\n\nfragment writingNFTPurchaseDetails on WritingNFTPurchaseType {\n  numSold\n  __typename\n}\n"
             }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
+            resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
                 logger.error(f"Error get_project_address request: {resp.text}")
                 sleep(5)
@@ -111,7 +113,7 @@ def get_info_about_subscription(session, address, i):
                 },
                 "query": "query IsSubscribed($projectAddress: String!, $walletAddress: String) {\n  isSubscribed(projectAddress: $projectAddress, walletAddress: $walletAddress)\n}\n"
             }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
+            resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
                 logger.error(f"{i}) Error get_info_about_subscription request: {address}")
                 sleep(5)
@@ -136,7 +138,7 @@ def get_info_about_email_confirm(session, address, private_key, i):
             },
             "query": "query SubscriptionEmail($walletAddress: String!) {\n  subscriptionEmail(walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error get_info_about_email_confirm request: {resp.status_code, resp.text}")
             return
@@ -181,7 +183,7 @@ def unlink_email(session, address, private_key, i):
             },
             "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error unlink_email request_1: {resp.status_code, resp.text}")
             return False
@@ -207,7 +209,7 @@ def unlink_email(session, address, private_key, i):
             },
             "query": "mutation UnlinkEmail($walletAddress: String!, $signedMessage: String!, $signature: String!) {\n  unlinkEmail(\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error unlink_email request_2: {resp.status_code, resp.text}")
             return False
@@ -244,7 +246,7 @@ def link_email(session, address, private_key, i):
             },
             "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error link_email request_1: {resp.status_code, resp.text}")
             return False
@@ -271,7 +273,7 @@ def link_email(session, address, private_key, i):
             },
             "query": "mutation LinkEmail($email: String!, $walletAddress: String!, $signedMessage: String!, $signature: String!, $walletlessSubscriptionToken: String) {\n  linkEmail(\n    email: $email\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n    walletlessSubscriptionToken: $walletlessSubscriptionToken\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error link_email request_2: {resp.status_code, resp.text}")
             return False
@@ -310,7 +312,7 @@ def link_email(session, address, private_key, i):
             },
             "query": "mutation VerifyEmailToken($token: String!, $walletAddress: String!) {\n  verifyEmailToken(token: $token, walletAddress: $walletAddress) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
         }
-        resp = session.post(f'https://mirror-api.com/graphql', json=data)
+        resp = session.post(f'{url}/api/graphql', json=data)
         if resp.status_code != 200:
             logger.error(f"{i}) Error link_email request_3: {resp.status_code, resp.text}")
             return False
@@ -339,59 +341,78 @@ def link_email(session, address, private_key, i):
         return False
 
 
-def subscribe(session, address, private_key, i):
-    while True:
-        try:
-            data = {
-                "operationName": "SubscriptionSigningMessage",
-                "variables": {
-                    "projectAddress": project_address,
-                    "walletAddress": address,
-                    "type": "SUBSCRIBE"
-                },
-                "query": "query SubscriptionSigningMessage($email: String, $projectAddress: String!, $walletAddress: String!, $type: SubscriptionSigningMessageEnumType) {\n  subscriptionSigningMessage(\n    email: $email\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    type: $type\n  )\n}\n"
-            }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
-            if resp.status_code != 200:
-                logger.error(f"{i}) Error subscribe request_1: {resp.status_code, resp.text}")
-                sleep(5)
-                continue
-            if resp.json()['data']['subscriptionSigningMessage']:
-                message = resp.json()['data']['subscriptionSigningMessage']
-                break
-            else:
-                logger.error(f"{i}) Error subscribe request_1: clear respose {resp.text}")
-                sleep(5)
-                continue
-        except Exception as error:
-            logger.error(f"{i}) Unexcepted error subscribe request_1: {error}")
-            sleep(5)
-
-    signature = web3.eth.account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
-    sleep(1)
-
+def subscribe(session, i):
     while True:
         try:
             data = {
                 "operationName": "Subscribe",
                 "variables": {
                     "projectAddress": project_address,
-                    "signature": signature,
-                    "signedMessage": message,
-                    "walletAddress": address,
                     "source": "SubscriberEdition"
                 },
-                "query": "mutation Subscribe($projectAddress: String!, $walletAddress: String!, $signedMessage: String!, $signature: String!, $source: String) {\n  subscribe(\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    signedMessage: $signedMessage\n    signature: $signature\n    source: $source\n  ) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
+                "query": "mutation Subscribe($projectAddress: String!, $source: String) {\n  subscribe(projectAddress: $projectAddress, source: $source) {\n    ...emailVerificationDetails\n    __typename\n  }\n}\n\nfragment emailVerificationDetails on EmailVerificationType {\n  _id\n  maskedEmail\n  verificationStatus\n  __typename\n}\n"
             }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
+            resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
-                logger.error(f"{i}) Error subscribe request_2: {resp.status_code, resp.text}")
+                logger.error(f"{i}) Error subscribe request: {resp.status_code, resp.text}")
                 sleep(5)
-            logger.success(f"{i}) Successfully subscribed!")
-            break
+            if resp.json()['data']['subscribe']['_id']:
+                logger.success(f"{i}) Successfully subscribed")
+                break
+            else:
+                logger.error(f"{i}) Error subscribe: {resp.text}")
+                sleep(5)
         except Exception as error:
-            logger.error(f"{i}) Unexcepted error subscribe request_2: {error}")
+            logger.error(f"{i}) Unexcepted error subscribe request: {error} {resp.text}")
             sleep(5)
+
+
+def sign_in_session(session, address, private_key, i):
+    try:
+        curve = ec.SECP256R1()
+        backend = default_backend()
+        public_key = ec.generate_private_key(curve, backend).public_key()
+        x = public_key.public_numbers().x
+        y = public_key.public_numbers().y
+        x_b64 = base64.urlsafe_b64encode(x.to_bytes(32, 'big')).rstrip(b'=').decode()
+        y_b64 = base64.urlsafe_b64encode(y.to_bytes(32, 'big')).rstrip(b'=').decode()
+        now = datetime.utcnow()
+        iso_time = now.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        nonce = ''.join(secrets.choice('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ') for i in range(17))
+        logger.info(f'{i}) Generated login public key point and nonce')
+        message = f"{url.split('://')[1]} wants you to sign in with your Ethereum account:\n{address}\n\nSign in with public key: ('crv':'P-256','ext':true,'key_ops':['verify'],'kty':'EC','x':'{x_b64}','y':'{y_b64}')\n\nURI: {url}\nVersion: 1\nChain ID: 1\nNonce: {nonce}\nIssued At: {iso_time}"
+        signature = web3.eth.account.sign_message(encode_defunct(text=message), private_key=private_key).signature.hex()
+        public_key_dict = {
+            "crv": "P-256",
+            "ext": True,
+            "key_ops": ["verify"],
+            "kty": "EC",
+            "x": x_b64,
+            "y": x_b64
+        }
+        data = {
+            "operationName": "signIn",
+            "variables": {
+                "address": address,
+                "publicKey": json.dumps(public_key_dict),
+                "signature": signature,
+                "message": message
+            },
+            "query": "mutation signIn($address: String!, $publicKey: String!, $signature: String!, $message: String!) {\n  signIn(\n    address: $address\n    publicKey: $publicKey\n    signature: $signature\n    message: $message\n  ) {\n    _id\n    __typename\n  }\n}\n"
+        }
+        resp = session.post(f'{url}/api/graphql', json=data)
+        if resp.status_code != 200:
+            logger.error(f"{i}) Error sign_in_session request: {resp.status_code, resp.text}")
+            return False
+        if resp.json()['data']['signIn']:
+            logger.success(f"{i}) Successfully signed in!")
+            return True
+        else:
+            logger.error(f"{i}) Error sign_in_session: {resp.text}")
+            return False
+    except Exception as error:
+        logger.error(f"{i}) Unexcepted error sign_in_session request: {error}")
+        return False
 
 
 def get_mint_nft_payload(session, address, i):
@@ -408,7 +429,7 @@ def get_mint_nft_payload(session, address, i):
                 },
                 "query": "query SubscriberEditionSignature($projectAddress: String, $walletAddress: String, $editionAddress: String, $tokenId: Int, $dryRun: Boolean) {\n  subscriberEditionSignature(\n    projectAddress: $projectAddress\n    walletAddress: $walletAddress\n    editionAddress: $editionAddress\n    tokenId: $tokenId\n    dryRun: $dryRun\n  ) {\n    signedPayload\n    result\n    __typename\n  }\n}\n"
             }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
+            resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
                 logger.error(f"{i}) Error get_mint_nft_payloadd request: {resp.status_code, resp.text}")
                 sleep(5)
@@ -451,7 +472,7 @@ def mint_nft(address, private_key, mint_payload, signature, i):
         contract = web3.eth.contract(address=web3.to_checksum_address(NFT_CONTRACT_ADDRESS), abi=NFT_ABI)
         transaction = contract.functions.mintWithSignature(mint_payload, signature).build_transaction({
                 'nonce': int(web3.eth.get_transaction_count(address)),
-                'gasPrice': int(web3.eth.gas_price * 1.1),
+                'gasPrice': web3.eth.gas_price,
                 'chainId': CHAIN_ID,
                 'from': address,
                 'gas': 180000,
@@ -461,11 +482,17 @@ def mint_nft(address, private_key, mint_payload, signature, i):
         signed_txn = web3.eth.account.sign_transaction(transaction, private_key)
         tx_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction)
         logger.info(f"{i}) Mint tx hash: {tx_hash.hex()}")
-        data = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120, poll_latency=0.15)
+        data = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=1000, poll_latency=0.3)
         status = True if data['status'] == 1 else False
         return (tx_hash.hex(), status)
     except Exception as error:
-        logger.error(f"{i}) Unexcepted mint_nft error: {error}")
+        if 'already minted' in str(error):
+            logger.info(f"{i}) Account already minted")
+        if 'insufficient funds' in str(error):
+            logger.error(f"{i}) Not enough funds to mint")
+        else:
+            logger.error(f"{i}) Unexcepted mint_entry error: {error}")
+        return (None, False)
 
 
 def get_mint_first_entry_payload(session, address, i):
@@ -478,7 +505,7 @@ def get_mint_first_entry_payload(session, address, i):
                 },
                 "query": "query WritingNFT($digest: String!) {\n  entry(digest: $digest) {\n    _id\n    digest\n    arweaveTransactionRequest {\n      transactionId\n      __typename\n    }\n    writingNFT {\n      ...writingNFTDetails\n      media {\n        ...mediaAsset\n        __typename\n      }\n      network {\n        ...networkDetails\n        __typename\n      }\n      intents {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      purchases {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n\nfragment writingNFTDetails on WritingNFTType {\n  _id\n  contractURI\n  contentURI\n  deploymentSignature\n  deploymentSignatureType\n  description\n  digest\n  fee\n  fundingRecipient\n  imageURI\n  canMint\n  media {\n    id\n    cid\n    __typename\n  }\n  nonce\n  optimisticNumSold\n  owner\n  price\n  proxyAddress\n  publisher {\n    project {\n      ...writingNFTProjectDetails\n      __typename\n    }\n    __typename\n  }\n  quantity\n  renderer\n  signature\n  symbol\n  timestamp\n  title\n  version\n  __typename\n}\n\nfragment writingNFTProjectDetails on ProjectType {\n  _id\n  address\n  avatarURL\n  displayName\n  domain\n  ens\n  __typename\n}\n\nfragment mediaAsset on MediaAssetType {\n  id\n  cid\n  mimetype\n  sizes {\n    ...mediaAssetSizes\n    __typename\n  }\n  url\n  __typename\n}\n\nfragment mediaAssetSizes on MediaAssetSizesType {\n  og {\n    ...mediaAssetSize\n    __typename\n  }\n  lg {\n    ...mediaAssetSize\n    __typename\n  }\n  md {\n    ...mediaAssetSize\n    __typename\n  }\n  sm {\n    ...mediaAssetSize\n    __typename\n  }\n  __typename\n}\n\nfragment mediaAssetSize on MediaAssetSizeType {\n  src\n  height\n  width\n  __typename\n}\n\nfragment networkDetails on NetworkType {\n  _id\n  chainId\n  name\n  explorerURL\n  currency {\n    _id\n    name\n    symbol\n    decimals\n    __typename\n  }\n  __typename\n}\n\nfragment writingNFTPurchaseDetails on WritingNFTPurchaseType {\n  numSold\n  __typename\n}\n"
             }
-            resp = session.post(f'https://mirror-api.com/graphql', json=data)
+            resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
                 logger.error(f"{i}) Error get_mint_first_entry_payload request: {resp.status_code, resp.text}")
                 sleep(5)
@@ -516,8 +543,8 @@ def mint_fisrt_entry(address, private_key, mint_payload, i):
     try:
         contract = web3.eth.contract(address=web3.to_checksum_address(NFT_CONTRACT_ADDRESS), abi=FIRST_ENTRY_ABI)
         transaction = contract.functions.createWithSignature(*mint_payload).build_transaction({
-                'nonce': int(web3.eth.get_transaction_count(address)),
-                'gasPrice': int(web3.eth.gas_price * 1.1),
+                'nonce': web3.eth.get_transaction_count(address),
+                'gasPrice': web3.eth.gas_price,
                 'chainId': CHAIN_ID,
                 'from': address,
                 'gas': 180000,
@@ -526,7 +553,7 @@ def mint_fisrt_entry(address, private_key, mint_payload, i):
         signed_txn = web3.eth.account.sign_transaction(transaction, private_key)
         tx_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction)
         logger.info(f"{i}) Mint tx hash: {tx_hash.hex()}")
-        data = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120, poll_latency=0.15)
+        data = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=1000, poll_latency=0.3)
         status = True if data['status'] == 1 else False
         return (tx_hash.hex(), status)
     except Exception as error:
@@ -537,8 +564,8 @@ def mint_entry(address, private_key, i):
     try:
         contract = web3.eth.contract(address=web3.to_checksum_address(NFT_CONTRACT_ADDRESS), abi=ENTRY_ABI)
         transaction = contract.functions.purchase(address, '').build_transaction({
-                'nonce': int(web3.eth.get_transaction_count(address)),
-                'gasPrice': int(web3.eth.gas_price * 1.1),
+                'nonce': web3.eth.get_transaction_count(address),
+                'gasPrice': web3.eth.gas_price,
                 'chainId': CHAIN_ID,
                 'from': address,
                 'value': int(VALUE * 10**18),
@@ -552,7 +579,13 @@ def mint_entry(address, private_key, i):
         status = True if data['status'] == 1 else False
         return (tx_hash.hex(), status)
     except Exception as error:
-        logger.error(f"{i}) Unexcepted mint_entry error: {error}")
+        if 'already minted' in str(error):
+            logger.info(f"{i}) Account already minted")
+        if 'insufficient funds' in str(error):
+            logger.error(f"{i}) Not enough funds to mint")
+        else:
+            logger.error(f"{i}) Unexcepted mint_entry error: {error}")
+        return (None, False)
 
 
 def main(wallet, i):
@@ -564,6 +597,8 @@ def main(wallet, i):
 
         logger.info(f'{i}) Account work: {address}  (proxy: {proxy.split("@")[1]})')
 
+        if not sign_in_session(session, address, private_key, i):
+            return
         status = get_info_about_email_confirm(session, address, private_key, i)  
         if status == 'NOT_SUBMITTED':
             if not link_email(session, address, private_key, i):
@@ -573,8 +608,9 @@ def main(wallet, i):
                 return         
             if not link_email(session, address, private_key, i):
                 return
+
         if not get_info_about_subscription(session, address, i):
-            subscribe(session, address, private_key, i)
+            subscribe(session, i)
 
         if MINT_TYPE == 'NFT':
             mint_payload, signature = get_mint_nft_payload(session, address, i)
@@ -583,7 +619,6 @@ def main(wallet, i):
                     file.write(f'{address}:{private_key}:{NFT_CONTRACT_ADDRESS}\n')
                 return
             tx_hash, status = mint_nft(address, private_key, mint_payload, signature, i)
-
         elif MINT_TYPE == 'ENTRY':
             if FIRST_ENTRY_STATUS == 'True':
                 mint_payload = get_mint_first_entry_payload(session, address, i)
@@ -598,7 +633,7 @@ def main(wallet, i):
             exit()
 
         if status:
-            logger.success(f"{i}) MINT SUCCESS!!!!!!!: (tx hash: {tx_hash})")
+            logger.success(f"{i}) MINT SUCCESS!!!!!: (tx hash: {tx_hash})")
             with open(CLAIMED_FILE, 'a') as file:
                 file.write(f'{address}:{private_key}:{NFT_CONTRACT_ADDRESS}\n')
         else:
@@ -650,10 +685,7 @@ if (__name__ == '__main__'):
     project_address = web3.to_checksum_address(get_project_address(proxies[0]))
 
     with concurrent.futures.ThreadPoolExecutor(THREADS) as executor:
-        futures = []
         for i, wallet in enumerate(wallets):
-            futures.append(
-                executor.submit(
-                    main, wallet, i
-                )
+            executor.submit(
+                main, wallet, i
             )
