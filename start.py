@@ -297,7 +297,7 @@ def link_email(session, address, private_key, i):
             break
         except TimeoutError:
             logger.error(f"{i}) Timeout 100s error 'get email'")
-            with open(file_dismissed_emails) as file:
+            with open(file_dismissed_emails, 'a') as file:
                 file.write(f'{email}\n')
             return False
         except Exception as error:
