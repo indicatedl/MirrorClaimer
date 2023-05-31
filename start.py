@@ -84,18 +84,19 @@ def get_project_address(proxy):
         try:
             session = setup_session(proxy)
             data = {
-                "operationName": "WritingNFT",
+                "operationName": "SubscriberEdition",
                 "variables": {
-                "digest": digest
+                    "address": web3.to_checksum_address(NFT_CONTRACT_ADDRESS),
+                    "tokenId": 0
                 },
-                "query": "query WritingNFT($digest: String!) {\n  entry(digest: $digest) {\n    _id\n    digest\n    arweaveTransactionRequest {\n      transactionId\n      __typename\n    }\n    writingNFT {\n      ...writingNFTDetails\n      media {\n        ...mediaAsset\n        __typename\n      }\n      network {\n        ...networkDetails\n        __typename\n      }\n      intents {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      purchases {\n        ...writingNFTPurchaseDetails\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}\n\nfragment writingNFTDetails on WritingNFTType {\n  _id\n  contractURI\n  contentURI\n  deploymentSignature\n  deploymentSignatureType\n  description\n  digest\n  fee\n  fundingRecipient\n  imageURI\n  canMint\n  media {\n    id\n    cid\n    __typename\n  }\n  nonce\n  optimisticNumSold\n  owner\n  price\n  proxyAddress\n  publisher {\n    project {\n      ...writingNFTProjectDetails\n      __typename\n    }\n    __typename\n  }\n  quantity\n  renderer\n  signature\n  symbol\n  timestamp\n  title\n  version\n  __typename\n}\n\nfragment writingNFTProjectDetails on ProjectType {\n  _id\n  address\n  avatarURL\n  displayName\n  domain\n  ens\n  __typename\n}\n\nfragment mediaAsset on MediaAssetType {\n  id\n  cid\n  mimetype\n  sizes {\n    ...mediaAssetSizes\n    __typename\n  }\n  url\n  __typename\n}\n\nfragment mediaAssetSizes on MediaAssetSizesType {\n  og {\n    ...mediaAssetSize\n    __typename\n  }\n  lg {\n    ...mediaAssetSize\n    __typename\n  }\n  md {\n    ...mediaAssetSize\n    __typename\n  }\n  sm {\n    ...mediaAssetSize\n    __typename\n  }\n  __typename\n}\n\nfragment mediaAssetSize on MediaAssetSizeType {\n  src\n  height\n  width\n  __typename\n}\n\nfragment networkDetails on NetworkType {\n  _id\n  chainId\n  name\n  explorerURL\n  currency {\n    _id\n    name\n    symbol\n    decimals\n    __typename\n  }\n  __typename\n}\n\nfragment writingNFTPurchaseDetails on WritingNFTPurchaseType {\n  numSold\n  __typename\n}\n"
+                "query": "query SubscriberEdition($address: String, $tokenId: Int) {\n  subscriberEdition(address: $address, tokenId: $tokenId) {\n    _id\n    address\n    tokenId\n    type\n    title\n    description\n    media {\n      mimetype\n      url\n      __typename\n    }\n    price\n    tokenStandard\n    chainId\n    endsAt\n    collectorCount\n    publisher {\n      ...publisherDetails\n      __typename\n    }\n    __typename\n  }\n}\n\nfragment publisherDetails on PublisherType {\n  project {\n    ...projectDetails\n    __typename\n  }\n  member {\n    ...projectDetails\n    __typename\n  }\n  __typename\n}\n\nfragment projectDetails on ProjectType {\n  _id\n  address\n  avatarURL\n  description\n  displayName\n  domain\n  ens\n  gaTrackingID\n  ga4TrackingID\n  mailingListURL\n  headerImage {\n    ...mediaAsset\n    __typename\n  }\n  theme {\n    ...themeDetails\n    __typename\n  }\n  __typename\n}\n\nfragment mediaAsset on MediaAssetType {\n  id\n  cid\n  mimetype\n  sizes {\n    ...mediaAssetSizes\n    __typename\n  }\n  url\n  __typename\n}\n\nfragment mediaAssetSizes on MediaAssetSizesType {\n  og {\n    ...mediaAssetSize\n    __typename\n  }\n  lg {\n    ...mediaAssetSize\n    __typename\n  }\n  md {\n    ...mediaAssetSize\n    __typename\n  }\n  sm {\n    ...mediaAssetSize\n    __typename\n  }\n  __typename\n}\n\nfragment mediaAssetSize on MediaAssetSizeType {\n  src\n  height\n  width\n  __typename\n}\n\nfragment themeDetails on UserProfileThemeType {\n  accent\n  colorMode\n  __typename\n}\n"
             }
             resp = session.post(f'{url}/api/graphql', json=data)
             if resp.status_code != 200:
                 logger.error(f"Error get_project_address request: {resp.text}")
                 sleep(5)
                 continue
-            project_address = resp.json()['data']['entry']['writingNFT']['publisher']['project']['address']
+            project_address = resp.json()['data']['subscriberEdition']['publisher']['project']['address']
             return project_address
         except Exception as error:
             logger.error(f"Unexcepted error get_project_address request: {error}")
